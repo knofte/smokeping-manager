@@ -25,6 +25,17 @@ def login_required(f):
     return wrapper
 
 
+def deploy_and_reload():
+    """Write config and reload SmokePing. Called after every change."""
+    try:
+        write_config()
+        success, msg = reload_smokeping()
+        if not success:
+            flash(f"Config written but reload failed: {msg}", "error")
+    except Exception as e:
+        flash(f"Auto-deploy failed: {e}", "error")
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -73,6 +84,7 @@ def add_group():
     try:
         create_group(name, title or name, parent_id)
         flash(f"Group '{name}' created", "success")
+        deploy_and_reload()
     except Exception as e:
         flash(f"Error: {e}", "error")
     return redirect(url_for("index"))
@@ -98,6 +110,7 @@ def edit_group(group_id):
     try:
         update_group(group_id, name, title or name, parent_id)
         flash(f"Group '{name}' updated", "success")
+        deploy_and_reload()
     except Exception as e:
         flash(f"Error: {e}", "error")
     return redirect(url_for("index"))
@@ -110,6 +123,7 @@ def remove_group(group_id):
     if group:
         delete_group(group_id)
         flash(f"Group '{group['name']}' deleted (including all hosts and subgroups)", "success")
+        deploy_and_reload()
     return redirect(url_for("index"))
 
 
@@ -139,6 +153,7 @@ def add_host():
     try:
         create_host(name, host, int(group_id), title or name, probe)
         flash(f"Host '{name}' ({host}) added", "success")
+        deploy_and_reload()
     except Exception as e:
         flash(f"Error: {e}", "error")
     return redirect(url_for("index"))
@@ -161,6 +176,7 @@ def edit_host(host_id):
     try:
         update_host(host_id, name, host, int(group_id), title or name, probe, enabled)
         flash(f"Host '{name}' updated", "success")
+        deploy_and_reload()
     except Exception as e:
         flash(f"Error: {e}", "error")
     return redirect(url_for("index"))
@@ -173,6 +189,7 @@ def remove_host(host_id):
     if host:
         delete_host(host_id)
         flash(f"Host '{host['name']}' deleted", "success")
+        deploy_and_reload()
     return redirect(url_for("index"))
 
 
