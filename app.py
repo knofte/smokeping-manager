@@ -7,7 +7,7 @@ from database import (
 )
 from generator import generate_config, write_config, reload_smokeping
 from updater import get_current_version, check_for_updates, apply_update
-from config import SECRET_KEY, ADMIN_USER, ADMIN_PASSWORD
+from config import SECRET_KEY, ADMIN_USER, ADMIN_PASSWORD, SMOKEPING_CGI_URL
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -39,6 +39,11 @@ def login():
 def logout():
     session.pop("logged_in", None)
     return redirect(url_for("login"))
+
+
+@app.context_processor
+def inject_globals():
+    return {"smokeping_cgi_url": SMOKEPING_CGI_URL}
 
 
 @app.route("/")
@@ -196,6 +201,21 @@ def deploy_config():
     except Exception as e:
         flash(f"Deploy failed: {e}", "error")
     return redirect(url_for("index"))
+
+
+# --- Graph routes ---
+
+@app.route("/graphs")
+@login_required
+def graphs():
+    tree = get_tree()
+    return render_template("graphs.html", tree=tree)
+
+
+@app.route("/graphs/<path:target_path>")
+@login_required
+def host_detail(target_path):
+    return render_template("host_detail.html", target_path=target_path)
 
 
 # --- Update routes ---

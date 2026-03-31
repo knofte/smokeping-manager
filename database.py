@@ -156,16 +156,39 @@ def get_tree():
             hosts_by_group[gid] = []
         hosts_by_group[gid].append(dict(h))
 
+    # Build lookup for parent chain (to construct SmokePing target paths)
+    group_by_id = {g["id"]: dict(g) for g in groups}
+
+    def get_group_path(group_id):
+        """Build the dotted path for a group, e.g. 'Clients.Pepperstone'."""
+        parts = []
+        gid = group_id
+        while gid is not None:
+            g = group_by_id.get(gid)
+            if not g:
+                break
+            parts.append(g["name"])
+            gid = g["parent_id"]
+        parts.reverse()
+        return ".".join(parts)
+
     def build_subtree(parent_id):
         tree = []
         for g in groups_by_parent.get(parent_id, []):
+            group_path = get_group_path(g["id"])
+            host_list = []
+            for h in hosts_by_group.get(g["id"], []):
+                h_copy = dict(h)
+                h_copy["target_path"] = f"{group_path}.{h['name']}"
+                host_list.append(h_copy)
             node = {
                 "type": "group",
                 "id": g["id"],
                 "name": g["name"],
                 "title": g["title"],
+                "path": group_path,
                 "children": build_subtree(g["id"]),
-                "hosts": hosts_by_group.get(g["id"], [])
+                "hosts": host_list,
             }
             tree.append(node)
         return tree

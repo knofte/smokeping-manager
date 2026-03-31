@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{{ target_path }} - SmokePing Manager{% endblock %}
+{% block content %}
+
+<div class="card">
+    <h2>{{ target_path.split('.')[-1] }}</h2>
+    <p style="color: #888; font-size: 13px; margin-bottom: 16px;">
+        Target: <code>{{ target_path }}</code>
+    </p>
+
+    <div class="graph-detail">
+        {% for period in ['3h', '30h', '10d', '400d'] %}
+        <div class="graph-period">
+            <h3>
+                {% if period == '3h' %}Last 3 Hours
+                {% elif period == '30h' %}Last 30 Hours
+                {% elif period == '10d' %}Last 10 Days
+                {% elif period == '400d' %}Last 400 Days
+                {% endif %}
+            </h3>
+            <img src="{{ smokeping_cgi_url }}?target={{ target_path }}&displaymode=a&displayrange={{ period }}"
+                 alt="{{ target_path }} - {{ period }}"
+                 class="graph-img"
+                 onerror="this.parentElement.innerHTML+='<div class=\'graph-placeholder\'>Graph not available for this period</div>'; this.style.display='none';">
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div style="margin-top: 16px;">
+    <a href="{{ url_for('graphs') }}" class="btn btn-primary">Back to Graphs</a>
+    <a href="{{ url_for('index') }}" class="btn btn-primary">Dashboard</a>
+</div>
+
+<style>
+    .graph-detail { display: flex; flex-direction: column; gap: 20px; }
+    .graph-period h3 { font-size: 14px; color: #a0c4e8; margin-bottom: 8px; }
+    .graph-img { width: 100%; max-width: 800px; height: auto; border-radius: 4px; }
+    .graph-placeholder { color: #888; font-size: 13px; padding: 40px 16px; text-align: center; background: #0f3460; border-radius: 4px; margin-top: 4px; }
+</style>
+
+{% endblock %}

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Graphs - SmokePing Manager{% endblock %}
+{% block content %}
+
+{% macro render_graph_group(node) %}
+<div class="card">
+    <h2>{{ node.title }}</h2>
+    {% if node.hosts %}
+    <div class="graph-grid">
+        {% for h in node.hosts %}
+        <div class="graph-card">
+            <div class="graph-header">
+                <strong>{{ h.title }}</strong>
+                <span class="host-addr">{{ h.host }}</span>
+            </div>
+            <a href="{{ url_for('host_detail', target_path=h.target_path) }}">
+                <img src="{{ smokeping_cgi_url }}?target={{ h.target_path }}&displaymode=a"
+                     alt="{{ h.title }}"
+                     class="graph-img"
+                     onerror="this.parentElement.innerHTML='<div class=\'graph-placeholder\'>Graph not yet available — deploy config and wait for SmokePing to collect data</div>'">
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% for child in node.children %}
+        {{ render_graph_group(child) }}
+    {% endfor %}
+</div>
+{% endmacro %}
+
+{% if tree %}
+    {% for node in tree %}
+        {{ render_graph_group(node) }}
+    {% endfor %}
+{% else %}
+<div class="card">
+    <p style="color: #888;">No targets configured yet. <a href="{{ url_for('index') }}" style="color: #3498db;">Add some hosts</a> first.</p>
+</div>
+{% endif %}
+
+<style>
+    .graph-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(500px, 1fr)); gap: 16px; }
+    .graph-card { background: #1a1a2e; border-radius: 6px; padding: 12px; border: 1px solid #0f3460; }
+    .graph-header { margin-bottom: 8px; font-size: 14px; }
+    .graph-header .host-addr { color: #6c8ebf; font-family: monospace; margin-left: 8px; font-size: 12px; }
+    .graph-img { width: 100%; height: auto; border-radius: 4px; }
+    .graph-placeholder { color: #888; font-size: 13px; padding: 40px 16px; text-align: center; background: #0f3460; border-radius: 4px; }
+</style>
+
+{% endblock %}

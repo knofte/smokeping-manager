@@ -19,6 +19,7 @@
             <div class="tree-host">
                 <span>{{ h.name }} <span class="host-addr">{{ h.host }}</span></span>
                 <div class="tree-actions">
+                    <a href="{{ url_for('host_detail', target_path=h.target_path) }}" class="btn btn-success btn-sm">Graphs</a>
                     <button class="btn btn-primary btn-sm" onclick="openEditHost({{ h.id }}, '{{ h.name }}', '{{ h.title }}', '{{ h.host }}', {{ h.group_id }}, '{{ h.probe }}', {{ h.enabled }})">Edit</button>
                     <form method="post" action="{{ url_for('remove_host', host_id=h.id) }}" onsubmit="return confirm('Delete host {{ h.name }}?')">
                         <button class="btn btn-danger btn-sm">Del</button>
