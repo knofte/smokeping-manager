@@ -61,6 +61,7 @@
             {% if session.get('logged_in') %}
             <a href="{{ url_for('index') }}">Dashboard</a>
             <a href="{{ url_for('preview_config') }}">Preview Config</a>
+            <a href="{{ url_for('update_page') }}">Update</a>
             <a href="{{ url_for('logout') }}">Logout</a>
             {% endif %}
         </div>

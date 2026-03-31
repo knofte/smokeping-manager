@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Update - SmokePing Manager{% endblock %}
+{% block content %}
+
+<div class="card">
+    <h2>Current Version</h2>
+    {% if current %}
+    <table>
+        <tr><th style="width:120px;">Commit</th><td><code>{{ current.hash }}</code></td></tr>
+        <tr><th>Date</th><td>{{ current.date }}</td></tr>
+        <tr><th>Message</th><td>{{ current.message }}</td></tr>
+    </table>
+    {% else %}
+    <p style="color: #888;">Could not determine current version (not a git repo?)</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Updates</h2>
+    {% if info.get('error') %}
+        <p style="color: #f5a3a3;">Error checking for updates: {{ info.error }}</p>
+    {% elif has_updates %}
+        <p style="margin-bottom: 12px;">
+            <strong>{{ info.behind }} update{{ 's' if info.behind != 1 }} available</strong>
+        </p>
+        <table>
+            <thead>
+                <tr><th>Commit</th><th>Date</th><th>Message</th></tr>
+            </thead>
+            <tbody>
+                {% for commit in info.pending %}
+                <tr>
+                    <td><code>{{ commit.hash }}</code></td>
+                    <td>{{ commit.date }}</td>
+                    <td>{{ commit.message }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <form method="post" action="{{ url_for('do_update') }}" style="margin-top: 16px;">
+            <button type="submit" class="btn btn-success" onclick="return confirm('Apply update? You will need to restart the service afterwards.')">
+                Apply Update
+            </button>
+        </form>
+    {% else %}
+        <p style="color: #95d5b2;">You are up to date.</p>
+    {% endif %}
+</div>
+
+{% endblock %}

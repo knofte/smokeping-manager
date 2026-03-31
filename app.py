@@ -6,6 +6,7 @@ from database import (
     get_host, create_host, update_host, delete_host
 )
 from generator import generate_config, write_config, reload_smokeping
+from updater import get_current_version, check_for_updates, apply_update
 from config import SECRET_KEY, ADMIN_USER, ADMIN_PASSWORD
 
 app = Flask(__name__)
@@ -195,6 +196,27 @@ def deploy_config():
     except Exception as e:
         flash(f"Deploy failed: {e}", "error")
     return redirect(url_for("index"))
+
+
+# --- Update routes ---
+
+@app.route("/update")
+@login_required
+def update_page():
+    current = get_current_version()
+    has_updates, info = check_for_updates()
+    return render_template("update.html", current=current, has_updates=has_updates, info=info)
+
+
+@app.route("/update/apply", methods=["POST"])
+@login_required
+def do_update():
+    success, message = apply_update()
+    if success:
+        flash(f"Updated successfully. Restart the service to apply. {message}", "success")
+    else:
+        flash(f"Update failed: {message}", "error")
+    return redirect(url_for("update_page"))
 
 
 if __name__ == "__main__":
