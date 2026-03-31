@@ -1,13 +1,14 @@
 import re
 import functools
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, request, redirect, url_for, flash, session, Response
 from database import (
     init_db, get_tree, get_groups, get_group, create_group, update_group, delete_group,
     get_host, create_host, update_host, delete_host
 )
 from generator import generate_config, write_config, reload_smokeping
 from updater import get_current_version, check_for_updates, apply_update, restart_service
-from config import SECRET_KEY, ADMIN_USER, ADMIN_PASSWORD, SMOKEPING_CGI_URL, HOST, PORT, DEBUG
+from smokeping_proxy import call_cgi
+from config import SECRET_KEY, ADMIN_USER, ADMIN_PASSWORD, HOST, PORT, DEBUG
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -54,7 +55,7 @@ def logout():
 
 @app.context_processor
 def inject_globals():
-    return {"smokeping_cgi_url": SMOKEPING_CGI_URL}
+    return {"smokeping_cgi_url": url_for("smokeping_cgi_proxy")}
 
 
 @app.route("/")
@@ -218,6 +219,16 @@ def deploy_config():
     except Exception as e:
         flash(f"Deploy failed: {e}", "error")
     return redirect(url_for("index"))
+
+
+# --- SmokePing CGI proxy ---
+
+@app.route("/smokeping-cgi")
+@login_required
+def smokeping_cgi_proxy():
+    query_string = request.query_string.decode("utf-8", errors="replace")
+    content_type, body = call_cgi(query_string)
+    return Response(body, content_type=content_type)
 
 
 # --- Graph routes ---

@@ -56,7 +56,7 @@ SPM_PID_FILE=/var/run/smokeping/smokeping.pid
 SPM_HOST=0.0.0.0
 SPM_PORT=5000
 SPM_DEBUG=false
-SPM_CGI_URL=/smokeping/smokeping.cgi
+#SPM_CGI_PATH=/usr/lib/cgi-bin/smokeping.cgi
 SPM_DATABASE=${INSTALL_DIR}/smokeping-manager.db
 EOF
     echo "  Config written to /etc/smokeping-manager.env"
