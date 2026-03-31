@@ -48,4 +48,14 @@
     .graph-placeholder { color: #888; font-size: 13px; padding: 40px 16px; text-align: center; background: #0f3460; border-radius: 4px; }
 </style>
 
+<script>
+// Auto-refresh graphs every 5 minutes (matches SmokePing probe interval)
+setInterval(function() {
+    document.querySelectorAll('.graph-img').forEach(function(img) {
+        var src = img.src.split('?')[0] + '?' + img.src.split('?')[1].replace(/&_=\d+/, '') + '&_=' + Date.now();
+        img.src = src;
+    });
+}, 300000);
+</script>
+
 {% endblock %}

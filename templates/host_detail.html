@@ -4,9 +4,23 @@
 
 <div class="card">
     <h2>{{ target_path.split('.')[-1] }}</h2>
-    <p style="color: #888; font-size: 13px; margin-bottom: 16px;">
+    <p style="color: #888; font-size: 13px; margin-bottom: 12px;">
         Target: <code>{{ target_path }}</code>
     </p>
+
+    <!-- Zoom controls -->
+    <div id="zoomControls" style="display:none; margin-bottom: 12px;">
+        <span style="font-size: 13px; color: #a0c4e8;">Zoomed view</span>
+        <button class="btn btn-primary btn-sm" onclick="resetZoom()" style="margin-left: 8px;">Reset Zoom</button>
+    </div>
+
+    <!-- Zoomed graph (shown when user selects a range) -->
+    <div id="zoomedGraph" style="display:none; margin-bottom: 20px;">
+        <div class="graph-container" style="position: relative; display: inline-block;">
+            <img id="zoomedImg" class="graph-img zoomable" alt="Zoomed view">
+            <div class="zoom-overlay" id="zoomedOverlay"></div>
+        </div>
+    </div>
 
     <div class="graph-detail">
         {% for period in ['3h', '30h', '10d', '400d'] %}
@@ -18,10 +32,15 @@
                 {% elif period == '400d' %}Last 400 Days
                 {% endif %}
             </h3>
-            <img src="{{ smokeping_cgi_url }}?target={{ target_path }}&displayrange={{ period }}"
-                 alt="{{ target_path }} - {{ period }}"
-                 class="graph-img"
-                 onerror="this.parentElement.innerHTML+='<div class=\'graph-placeholder\'>Graph not available for this period</div>'; this.style.display='none';">
+            <div class="graph-container" style="position: relative; display: inline-block;">
+                <img src="{{ smokeping_cgi_url }}?target={{ target_path }}&displayrange={{ period }}"
+                     alt="{{ target_path }} - {{ period }}"
+                     class="graph-img zoomable"
+                     data-target="{{ target_path }}"
+                     data-range="{{ period }}"
+                     onerror="this.parentElement.innerHTML='<div class=\'graph-placeholder\'>Graph not available for this period</div>'">
+                <div class="zoom-overlay"></div>
+            </div>
         </div>
         {% endfor %}
     </div>
@@ -35,8 +54,179 @@
 <style>
     .graph-detail { display: flex; flex-direction: column; gap: 20px; }
     .graph-period h3 { font-size: 14px; color: #a0c4e8; margin-bottom: 8px; }
-    .graph-img { width: 100%; max-width: 800px; height: auto; border-radius: 4px; background: #fff; }
+    .graph-img { max-width: 100%; height: auto; border-radius: 4px; cursor: crosshair; user-select: none; -webkit-user-drag: none; }
     .graph-placeholder { color: #888; font-size: 13px; padding: 40px 16px; text-align: center; background: #0f3460; border-radius: 4px; margin-top: 4px; }
+    .graph-container { position: relative; display: inline-block; }
+    .zoom-overlay {
+        display: none;
+        position: absolute;
+        top: 0;
+        height: 100%;
+        background: rgba(52, 152, 219, 0.25);
+        border-left: 1px solid #3498db;
+        border-right: 1px solid #3498db;
+        pointer-events: none;
+    }
 </style>
+
+<script>
+// rrdtool graph layout constants
+// These match rrdtool's default rendering with our settings
+var GRAPH_LEFT_MARGIN = 81;   // pixels from left edge to graph area start
+var GRAPH_RIGHT_MARGIN = 25;  // pixels from right edge to graph area end
+var GRAPH_WIDTH = 800;        // the --width parameter we pass to rrdtool
+
+// Time ranges in seconds
+var RANGE_SECONDS = {
+    '3h': 10800,
+    '30h': 108000,
+    '10d': 864000,
+    '400d': 34560000
+};
+
+var TARGET = '{{ target_path }}';
+var CGI_URL = '{{ smokeping_cgi_url }}';
+
+// Drag state
+var dragState = null;
+
+document.addEventListener('mousedown', function(e) {
+    var img = e.target.closest('.zoomable');
+    if (!img) return;
+
+    e.preventDefault();
+    var rect = img.getBoundingClientRect();
+    var container = img.parentElement;
+    var overlay = container.querySelector('.zoom-overlay');
+
+    dragState = {
+        img: img,
+        overlay: overlay,
+        rect: rect,
+        startX: e.clientX,
+        imgWidth: rect.width
+    };
+
+    overlay.style.display = 'block';
+    overlay.style.left = (e.clientX - rect.left) + 'px';
+    overlay.style.width = '0px';
+});
+
+document.addEventListener('mousemove', function(e) {
+    if (!dragState) return;
+    e.preventDefault();
+
+    var rect = dragState.rect;
+    var startX = dragState.startX - rect.left;
+    var currentX = e.clientX - rect.left;
+
+    // Clamp to image bounds
+    currentX = Math.max(0, Math.min(currentX, rect.width));
+
+    var left = Math.min(startX, currentX);
+    var width = Math.abs(currentX - startX);
+
+    dragState.overlay.style.left = left + 'px';
+    dragState.overlay.style.width = width + 'px';
+});
+
+document.addEventListener('mouseup', function(e) {
+    if (!dragState) return;
+
+    var rect = dragState.rect;
+    var imgWidth = rect.width;
+    var startX = dragState.startX - rect.left;
+    var endX = e.clientX - rect.left;
+
+    // Clamp
+    startX = Math.max(0, Math.min(startX, imgWidth));
+    endX = Math.max(0, Math.min(endX, imgWidth));
+
+    // Hide overlay
+    dragState.overlay.style.display = 'none';
+
+    // Need minimum drag width (10px) to trigger zoom
+    if (Math.abs(endX - startX) < 10) {
+        dragState = null;
+        return;
+    }
+
+    // Ensure left-to-right order
+    var leftPx = Math.min(startX, endX);
+    var rightPx = Math.max(startX, endX);
+
+    // Get the time range for this graph
+    var range = dragState.img.dataset.range;
+    var totalSeconds;
+
+    if (dragState.img.id === 'zoomedImg') {
+        // Zooming on already-zoomed graph
+        totalSeconds = dragState.img._zoomEnd - dragState.img._zoomStart;
+    } else {
+        totalSeconds = RANGE_SECONDS[range] || 10800;
+    }
+
+    // Map pixel position to time
+    // The graph area within the image spans from GRAPH_LEFT_MARGIN to (imgWidth - GRAPH_RIGHT_MARGIN)
+    // Scale margins proportionally to actual rendered size vs native size
+    var nativeWidth = GRAPH_WIDTH + GRAPH_LEFT_MARGIN + GRAPH_RIGHT_MARGIN;
+    var scale = imgWidth / nativeWidth;
+    var graphLeft = GRAPH_LEFT_MARGIN * scale;
+    var graphRight = imgWidth - (GRAPH_RIGHT_MARGIN * scale);
+    var graphWidth = graphRight - graphLeft;
+
+    // Clamp selection to graph area
+    leftPx = Math.max(leftPx, graphLeft);
+    rightPx = Math.min(rightPx, graphRight);
+
+    if (rightPx - leftPx < 5) {
+        dragState = null;
+        return;
+    }
+
+    // Convert pixel position to time fraction
+    var leftFrac = (leftPx - graphLeft) / graphWidth;
+    var rightFrac = (rightPx - graphLeft) / graphWidth;
+
+    // Calculate timestamps
+    var now = Math.floor(Date.now() / 1000);
+    var rangeStart, rangeEnd;
+
+    if (dragState.img.id === 'zoomedImg') {
+        rangeStart = dragState.img._zoomStart;
+        rangeEnd = dragState.img._zoomEnd;
+    } else {
+        rangeStart = now - totalSeconds;
+        rangeEnd = now;
+    }
+
+    var newStart = Math.floor(rangeStart + leftFrac * (rangeEnd - rangeStart));
+    var newEnd = Math.floor(rangeStart + rightFrac * (rangeEnd - rangeStart));
+
+    dragState = null;
+
+    // Show zoomed graph
+    zoomTo(newStart, newEnd);
+});
+
+function zoomTo(start, end) {
+    var img = document.getElementById('zoomedImg');
+    var url = CGI_URL + '?target=' + TARGET + '&start=' + start + '&end=' + end;
+    img.src = url;
+    img._zoomStart = start;
+    img._zoomEnd = end;
+
+    document.getElementById('zoomedGraph').style.display = 'block';
+    document.getElementById('zoomControls').style.display = 'block';
+
+    // Scroll to zoomed graph
+    document.getElementById('zoomControls').scrollIntoView({ behavior: 'smooth' });
+}
+
+function resetZoom() {
+    document.getElementById('zoomedGraph').style.display = 'none';
+    document.getElementById('zoomControls').style.display = 'none';
+}
+</script>
 
 {% endblock %}
