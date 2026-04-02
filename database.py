@@ -340,6 +340,124 @@ def get_audit_log(limit=100, entity_type=None, user_id=None):
     return rows
 
 
+# --- Slave CRUD ---
+
+def get_slaves():
+    db = get_db()
+    slaves = db.execute("SELECT * FROM slaves ORDER BY name").fetchall()
+    db.close()
+    return slaves
+
+
+def get_slave(slave_id):
+    db = get_db()
+    slave = db.execute("SELECT * FROM slaves WHERE id = ?", (slave_id,)).fetchone()
+    db.close()
+    return dict(slave) if slave else None
+
+
+def get_slave_by_key(api_key_hash):
+    db = get_db()
+    slave = db.execute("SELECT * FROM slaves WHERE api_key_hash = ?", (api_key_hash,)).fetchone()
+    db.close()
+    return dict(slave) if slave else None
+
+
+def create_slave(name, display_name, hostname, api_key_hash, api_key_prefix, location=None):
+    db = get_db()
+    db.execute(
+        "INSERT INTO slaves (name, display_name, hostname, api_key_hash, api_key_prefix, location) VALUES (?, ?, ?, ?, ?, ?)",
+        (name, display_name or name, hostname, api_key_hash, api_key_prefix, location)
+    )
+    db.commit()
+    slave_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+    db.close()
+    return slave_id
+
+
+def update_slave(slave_id, **kwargs):
+    db = get_db()
+    fields = []
+    values = []
+    for key in ("name", "display_name", "hostname", "location", "status",
+                "last_seen_at", "smokeping_version", "api_key_hash", "api_key_prefix"):
+        if key in kwargs:
+            fields.append(f"{key} = ?")
+            values.append(kwargs[key])
+    if fields:
+        fields.append("updated_at = datetime('now')")
+        values.append(slave_id)
+        db.execute(f"UPDATE slaves SET {', '.join(fields)} WHERE id = ?", values)
+        db.commit()
+    db.close()
+
+
+def delete_slave(slave_id):
+    db = get_db()
+    db.execute("DELETE FROM slaves WHERE id = ?", (slave_id,))
+    db.commit()
+    db.close()
+
+
+# --- Host-Slave assignments ---
+
+def get_host_slaves(host_id):
+    """Get all slaves assigned to a host."""
+    db = get_db()
+    rows = db.execute("""
+        SELECT s.* FROM slaves s
+        JOIN host_slaves hs ON s.id = hs.slave_id
+        WHERE hs.host_id = ? AND hs.enabled = 1
+        ORDER BY s.name
+    """, (host_id,)).fetchall()
+    db.close()
+    return rows
+
+
+def get_slave_hosts(slave_id):
+    """Get all hosts assigned to a slave."""
+    db = get_db()
+    rows = db.execute("""
+        SELECT h.*, g.name as group_name FROM hosts h
+        JOIN host_slaves hs ON h.id = hs.host_id
+        JOIN groups g ON h.group_id = g.id
+        WHERE hs.slave_id = ? AND hs.enabled = 1 AND h.enabled = 1
+        ORDER BY g.name, h.name
+    """, (slave_id,)).fetchall()
+    db.close()
+    return rows
+
+
+def assign_host_to_slave(host_id, slave_id):
+    db = get_db()
+    db.execute(
+        "INSERT OR IGNORE INTO host_slaves (host_id, slave_id) VALUES (?, ?)",
+        (host_id, slave_id)
+    )
+    db.commit()
+    db.close()
+
+
+def unassign_host_from_slave(host_id, slave_id):
+    db = get_db()
+    db.execute(
+        "DELETE FROM host_slaves WHERE host_id = ? AND slave_id = ?",
+        (host_id, slave_id)
+    )
+    db.commit()
+    db.close()
+
+
+def set_host_slaves(host_id, slave_ids):
+    """Replace all slave assignments for a host."""
+    db = get_db()
+    db.execute("DELETE FROM host_slaves WHERE host_id = ?", (host_id,))
+    for sid in slave_ids:
+        db.execute("INSERT INTO host_slaves (host_id, slave_id) VALUES (?, ?)", (host_id, sid))
+    db.commit()
+    db.close()
+
+
 # --- Seed admin user ---
 
 def _seed_admin_user():

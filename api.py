@@ -6,6 +6,8 @@ from database import (
     get_user_permissions, set_user_permissions,
     get_api_tokens, create_api_token, delete_api_token,
     get_audit_log,
+    get_slaves, get_slave, get_slave_by_key, create_slave, update_slave, delete_slave,
+    get_slave_hosts, assign_host_to_slave, unassign_host_from_slave,
 )
 from auth import (
     hash_password, generate_api_token as gen_token,
@@ -469,3 +471,202 @@ def list_audit():
     user_id = request.args.get("user_id", type=int)
     entries = get_audit_log(limit=limit, entity_type=entity_type, user_id=user_id)
     return jsonify({"data": [dict(e) for e in entries]})
+
+
+# --- Slaves (admin only) ---
+
+@api.route("/slaves")
+def list_slaves():
+    err = require_role("admin")
+    if err:
+        return err
+    slaves = get_slaves()
+    result = []
+    for s in slaves:
+        d = dict(s)
+        d.pop("api_key_hash", None)
+        result.append(d)
+    return jsonify({"data": result})
+
+
+@api.route("/slaves/<int:slave_id>")
+def get_slave_detail(slave_id):
+    err = require_role("admin")
+    if err:
+        return err
+    slave = get_slave(slave_id)
+    if not slave:
+        return jsonify({"error": {"code": "not_found", "message": "Slave not found"}}), 404
+    d = dict(slave)
+    d.pop("api_key_hash", None)
+    d["hosts"] = [dict(h) for h in get_slave_hosts(slave_id)]
+    return jsonify({"data": d})
+
+
+@api.route("/slaves", methods=["POST"])
+def api_create_slave():
+    err = require_role("admin")
+    if err:
+        return err
+
+    data = request.get_json(silent=True) or {}
+    name = data.get("name", "").strip()
+    display_name = data.get("display_name", "").strip()
+    hostname = data.get("hostname", "").strip()
+    location = data.get("location", "").strip()
+
+    if not name or not VALID_NAME.match(name):
+        return jsonify({"error": {"code": "invalid_name", "message": "Invalid name"}}), 400
+    if not hostname:
+        return jsonify({"error": {"code": "missing_hostname", "message": "Hostname required"}}), 400
+
+    raw_key, key_hash, key_prefix = gen_token()
+    try:
+        slave_id = create_slave(name, display_name or name, hostname, key_hash, key_prefix, location)
+        log_action("create", "slave", slave_id, name, {"location": location})
+        return jsonify({"data": {
+            "id": slave_id,
+            "name": name,
+            "api_key": raw_key,
+            "message": "Save this API key — it won't be shown again",
+        }}), 201
+    except Exception as e:
+        return jsonify({"error": {"code": "create_failed", "message": str(e)}}), 400
+
+
+@api.route("/slaves/<int:slave_id>", methods=["PUT"])
+def api_update_slave(slave_id):
+    err = require_role("admin")
+    if err:
+        return err
+
+    data = request.get_json(silent=True) or {}
+    kwargs = {}
+    for field in ("name", "display_name", "hostname", "location"):
+        if field in data:
+            kwargs[field] = data[field].strip()
+
+    if "name" in kwargs and not VALID_NAME.match(kwargs["name"]):
+        return jsonify({"error": {"code": "invalid_name", "message": "Invalid name"}}), 400
+
+    try:
+        update_slave(slave_id, **kwargs)
+        log_action("update", "slave", slave_id, kwargs.get("name"))
+        return jsonify({"data": {"id": slave_id, "updated": True}})
+    except Exception as e:
+        return jsonify({"error": {"code": "update_failed", "message": str(e)}}), 400
+
+
+@api.route("/slaves/<int:slave_id>", methods=["DELETE"])
+def api_delete_slave(slave_id):
+    err = require_role("admin")
+    if err:
+        return err
+
+    slave = get_slave(slave_id)
+    if not slave:
+        return jsonify({"error": {"code": "not_found", "message": "Slave not found"}}), 404
+
+    delete_slave(slave_id)
+    log_action("delete", "slave", slave_id, slave["name"])
+    return jsonify({"data": {"id": slave_id, "deleted": True}})
+
+
+@api.route("/slaves/<int:slave_id>/regenerate-key", methods=["POST"])
+def regenerate_slave_key(slave_id):
+    err = require_role("admin")
+    if err:
+        return err
+
+    slave = get_slave(slave_id)
+    if not slave:
+        return jsonify({"error": {"code": "not_found", "message": "Slave not found"}}), 404
+
+    raw_key, key_hash, key_prefix = gen_token()
+    update_slave(slave_id, api_key_hash=key_hash, api_key_prefix=key_prefix)
+    log_action("regenerate_key", "slave", slave_id, slave["name"])
+    return jsonify({"data": {
+        "api_key": raw_key,
+        "message": "Save this API key — it won't be shown again",
+    }})
+
+
+@api.route("/slaves/<int:slave_id>/hosts", methods=["POST"])
+def assign_hosts_to_slave(slave_id):
+    err = require_role("admin")
+    if err:
+        return err
+
+    slave = get_slave(slave_id)
+    if not slave:
+        return jsonify({"error": {"code": "not_found", "message": "Slave not found"}}), 404
+
+    data = request.get_json(silent=True) or {}
+    host_ids = data.get("host_ids", [])
+
+    for hid in host_ids:
+        assign_host_to_slave(int(hid), slave_id)
+
+    log_action("assign_hosts", "slave", slave_id, slave["name"], {"host_ids": host_ids})
+    return jsonify({"data": {"slave_id": slave_id, "assigned": len(host_ids)}})
+
+
+@api.route("/slaves/<int:slave_id>/hosts/<int:host_id>", methods=["DELETE"])
+def unassign_host(slave_id, host_id):
+    err = require_role("admin")
+    if err:
+        return err
+
+    unassign_host_from_slave(host_id, slave_id)
+    log_action("unassign_host", "slave", slave_id, details={"host_id": host_id})
+    return jsonify({"data": {"slave_id": slave_id, "host_id": host_id, "unassigned": True}})
+
+
+# --- Agent endpoints (authenticated by slave API key, no user auth) ---
+
+agent_bp = Blueprint("agent", __name__, url_prefix="/api/v1/agent")
+
+
+@agent_bp.before_request
+def authenticate_agent():
+    """Authenticate agent requests via slave API key."""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer spm_"):
+        return jsonify({"error": {"code": "unauthorized", "message": "Slave API key required"}}), 401
+
+    token = auth_header[7:]
+    key_hash = hash_token(token)
+    slave = get_slave_by_key(key_hash)
+
+    if not slave:
+        return jsonify({"error": {"code": "unauthorized", "message": "Invalid slave API key"}}), 401
+
+    g.slave = slave
+
+
+@agent_bp.route("/config")
+def agent_get_config():
+    """Return the SmokePing config for this slave's assigned targets."""
+    from generator import generate_slave_config
+    slave = g.slave
+    config = generate_slave_config(slave["id"])
+    config_hash = __import__("hashlib").md5(config.encode()).hexdigest()
+    return jsonify({"data": {
+        "config": config,
+        "config_hash": config_hash,
+        "slave_name": slave["name"],
+    }})
+
+
+@agent_bp.route("/heartbeat", methods=["POST"])
+def agent_heartbeat():
+    """Slave reports its status."""
+    slave = g.slave
+    data = request.get_json(silent=True) or {}
+
+    update_slave(slave["id"],
+                 status="active",
+                 last_seen_at=__import__("datetime").datetime.utcnow().isoformat(),
+                 smokeping_version=data.get("smokeping_version"))
+
+    return jsonify({"data": {"acknowledged": True}})
