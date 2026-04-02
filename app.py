@@ -17,10 +17,12 @@ from auth import (
     filter_tree_for_user,
 )
 from audit import log_action
+from api import api as api_blueprint
 from config import SECRET_KEY, HOST, PORT, DEBUG
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+app.register_blueprint(api_blueprint)
 
 VALID_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
